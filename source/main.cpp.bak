@@ -1,0 +1,105 @@
+#include <iostream>
+#include <vector>
+#include <cstring>
+
+#include <opencv2/opencv.hpp>
+
+#include "edge-impulse-sdk/classifier/ei_run_classifier.h"
+#include "model-parameters/model_metadata.h"
+
+static std::vector<float> features;
+
+static int get_signal_data(size_t offset, size_t length, float *out_ptr) {
+    memcpy(out_ptr, features.data() + offset, length * sizeof(float));
+    return 0;
+}
+
+int main() {
+    cv::VideoCapture cap(0);
+    if (!cap.isOpened()) {
+        std::cerr << "Failed to open webcam\n";
+        return 1;
+    }
+
+    std::cout << "Starting webcam inference. Press q to quit.\n";
+
+    const int input_w = EI_CLASSIFIER_INPUT_WIDTH;
+    const int input_h = EI_CLASSIFIER_INPUT_HEIGHT;
+
+    features.resize(input_w * input_h * 3);
+
+    while (true) {
+        cv::Mat frame;
+        cap >> frame;
+        if (frame.empty()) {
+            std::cerr << "Captured empty frame\n";
+            continue;
+        }
+
+        cv::Mat resized;
+        cv::resize(frame, resized, cv::Size(input_w, input_h));
+
+        for (int y = 0; y < input_h; y++) {
+            for (int x = 0; x < input_w; x++) {
+                cv::Vec3b bgr = resized.at<cv::Vec3b>(y, x);
+
+                float r = static_cast<float>(bgr[2]);
+                float g = static_cast<float>(bgr[1]);
+                float b = static_cast<float>(bgr[0]);
+
+                size_t idx = (y * input_w + x) * 3;
+                features[idx + 0] = r;
+                features[idx + 1] = g;
+                features[idx + 2] = b;
+            }
+        }
+
+        signal_t signal;
+        signal.total_length = features.size();
+        signal.get_data = &get_signal_data;
+
+        ei_impulse_result_t result = {0};
+        EI_IMPULSE_ERROR res = run_classifier(&signal, &result, false);
+
+        if (res != EI_IMPULSE_OK) {
+            std::cerr << "run_classifier failed: " << res << "\n";
+            continue;
+        }
+
+        for (size_t i = 0; i < result.bounding_boxes_count; i++) {
+            auto bb = result.bounding_boxes[i];
+            if (bb.value == 0) continue;
+
+            int x = bb.x * frame.cols / input_w;
+            int y = bb.y * frame.rows / input_h;
+            int w = bb.width * frame.cols / input_w;
+            int h = bb.height * frame.rows / input_h;
+
+            cv::rectangle(frame, cv::Rect(x, y, w, h), cv::Scalar(0, 255, 0), 2);
+
+            std::string label = std::string(bb.label) + " " + cv::format("%.2f", bb.value);
+            int baseline = 0;
+            cv::Size label_size = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseline);
+
+            int text_y = std::max(y - 10, label_size.height + 4);
+            cv::rectangle(frame,
+                          cv::Point(x, text_y - label_size.height - 4),
+                          cv::Point(x + label_size.width, text_y),
+                          cv::Scalar(0, 255, 0),
+                          cv::FILLED);
+            cv::putText(frame, label, cv::Point(x, text_y - 2),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
+        }
+
+        cv::imshow("Edge Impulse Webcam Detection", frame);
+
+        char c = (char)cv::waitKey(1);
+        if (c == 'q' || c == 'Q') {
+            break;
+        }
+    }
+
+    cap.release();
+    cv::destroyAllWindows();
+    return 0;
+}

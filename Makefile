@@ -10,7 +10,7 @@ BUILD_PATH = ./build
 CXXSOURCES = source/main.cpp
 
 # Search path for header files (current directory)
-CFLAGS += -I.
+CFLAGS += -I. $(shell pkg-config --cflags opencv5)
 
 # C and C++ Compiler flags
 CFLAGS += -Wall						# Include all warnings
@@ -21,6 +21,8 @@ CFLAGS += -DNDEBUG					# Disable assert() macro
 
 # C++ only compiler flags
 CXXFLAGS += -std=c++11				# Use C++11 standard
+
+OPENCV_FLAGS := $(shell pkg-config --cflags --libs opencv5)
 
 # Linker flags
 LDFLAGS += -lm 						# Link to math.h
@@ -94,10 +96,13 @@ all: app
 $(COBJECTS) : %.o : %.c
 $(CXXOBJECTS) : %.o : %.cpp
 $(CCOBJECTS) : %.o : %.cc
+
 %.o: %.c
 	$(CC) $(CFLAGS) -c $^ -o $@
+
 %.o: %.cc
 	$(CXX) $(CFLAGS) $(CXXFLAGS) -c $^ -o $@
+
 %.o: %.cpp
 	$(CXX) $(CFLAGS) $(CXXFLAGS) -c $^ -o $@
 
@@ -109,7 +114,7 @@ ifeq ($(OS), Windows_NT)
 else
 	mkdir -p $(BUILD_PATH)
 endif
-	$(CXX) $(COBJECTS) $(CXXOBJECTS) $(CCOBJECTS) -o $(BUILD_PATH)/$(NAME) $(LDFLAGS)
+	$(CXX) $(COBJECTS) $(CXXOBJECTS) $(CCOBJECTS) -o $(BUILD_PATH)/$(NAME) $(LDFLAGS) $(OPENCV_FLAGS)
 
 # Remove compiled object files
 .PHONY: clean
